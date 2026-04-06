@@ -650,6 +650,18 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'move_channel',
+      description: 'Move a channel into a category (or out of one by passing null).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The channel ID to move.' },
+          category_id: { type: 'string', description: 'The category ID to move the channel into.' },
+        },
+        required: ['channel_id', 'category_id'],
+      },
+    },
+    {
       name: 'set_channel_topic',
       description: 'Set or update the topic/description of a Discord channel.',
       inputSchema: {
@@ -800,6 +812,14 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const name = 'name' in ch ? ch.name : channel_id
         await ch.delete()
         return { content: [{ type: 'text', text: `deleted channel #${name}` }] }
+      }
+      case 'move_channel': {
+        const channel_id = args.channel_id as string
+        const category_id = args.category_id as string
+        const ch = await client.channels.fetch(channel_id)
+        if (!ch || !('setParent' in ch)) throw new Error(`channel ${channel_id} not found or can't be moved`)
+        await (ch as any).setParent(category_id)
+        return { content: [{ type: 'text', text: `moved #${(ch as any).name} into category ${category_id}` }] }
       }
       case 'set_channel_topic': {
         const channel_id = args.channel_id as string
