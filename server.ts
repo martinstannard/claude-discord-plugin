@@ -591,6 +591,77 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
       },
     },
     {
+      name: 'list_channels',
+      description: 'List all channels in a Discord server (guild). Returns channel names, IDs, types, and parent categories.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          guild_id: { type: 'string', description: 'The server/guild ID.' },
+        },
+        required: ['guild_id'],
+      },
+    },
+    {
+      name: 'create_thread',
+      description: 'Create a new thread from a message. Great for focused discussions on PRs, bugs, or decisions.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          chat_id: { type: 'string', description: 'The channel ID containing the message.' },
+          message_id: { type: 'string', description: 'The message ID to start the thread from.' },
+          name: { type: 'string', description: 'Thread name.' },
+        },
+        required: ['chat_id', 'message_id', 'name'],
+      },
+    },
+    {
+      name: 'pin_message',
+      description: 'Pin a message in a Discord channel.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          chat_id: { type: 'string' },
+          message_id: { type: 'string' },
+        },
+        required: ['chat_id', 'message_id'],
+      },
+    },
+    {
+      name: 'unpin_message',
+      description: 'Unpin a message in a Discord channel.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          chat_id: { type: 'string' },
+          message_id: { type: 'string' },
+        },
+        required: ['chat_id', 'message_id'],
+      },
+    },
+    {
+      name: 'delete_channel',
+      description: 'Delete a Discord channel. Use with caution — this is irreversible.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The channel ID to delete.' },
+        },
+        required: ['channel_id'],
+      },
+    },
+    {
+      name: 'set_channel_topic',
+      description: 'Set or update the topic/description of a Discord channel.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The channel ID.' },
+          topic: { type: 'string', description: 'The new topic text.' },
+        },
+        required: ['channel_id', 'topic'],
+      },
+    },
+    {
       name: 'fetch_messages',
       description:
         "Fetch recent messages from a Discord channel. Returns oldest-first with message IDs. Discord's search API isn't exposed to bots, so this is the only way to look back.",
@@ -678,6 +749,65 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
           ...(category_id ? { parent: category_id } : {}),
         })
         return { content: [{ type: 'text', text: `created #${channel.name} (id: ${channel.id})` }] }
+      }
+      case 'list_channels': {
+        const guild_id = args.guild_id as string
+        const guild = await client.guilds.fetch(guild_id)
+        const channels = await guild.channels.fetch()
+        const lines = [...channels.values()]
+          .filter(c => c !== null)
+          .sort((a, b) => (a!.position ?? 0) - (b!.position ?? 0))
+          .map(c => {
+            const type = c!.type === ChannelType.GuildText ? 'text'
+              : c!.type === ChannelType.GuildVoice ? 'voice'
+              : c!.type === ChannelType.GuildCategory ? 'category'
+              : c!.type === ChannelType.GuildForum ? 'forum'
+              : String(c!.type)
+            const parent = c!.parentId ? ` (in ${c!.parentId})` : ''
+            return `${type}: #${c!.name} — ${c!.id}${parent}`
+          })
+        return { content: [{ type: 'text', text: lines.join('\n') || '(no channels)' }] }
+      }
+      case 'create_thread': {
+        const chat_id = args.chat_id as string
+        const message_id = args.message_id as string
+        const name = args.name as string
+        const ch = await fetchAllowedChannel(chat_id)
+        const msg = await ch.messages.fetch(message_id)
+        const thread = await msg.startThread({ name })
+        return { content: [{ type: 'text', text: `created thread "${thread.name}" (id: ${thread.id})` }] }
+      }
+      case 'pin_message': {
+        const chat_id = args.chat_id as string
+        const message_id = args.message_id as string
+        const ch = await fetchAllowedChannel(chat_id)
+        const msg = await ch.messages.fetch(message_id)
+        await msg.pin()
+        return { content: [{ type: 'text', text: `pinned message ${message_id}` }] }
+      }
+      case 'unpin_message': {
+        const chat_id = args.chat_id as string
+        const message_id = args.message_id as string
+        const ch = await fetchAllowedChannel(chat_id)
+        const msg = await ch.messages.fetch(message_id)
+        await msg.unpin()
+        return { content: [{ type: 'text', text: `unpinned message ${message_id}` }] }
+      }
+      case 'delete_channel': {
+        const channel_id = args.channel_id as string
+        const ch = await client.channels.fetch(channel_id)
+        if (!ch) throw new Error(`channel ${channel_id} not found`)
+        const name = 'name' in ch ? ch.name : channel_id
+        await ch.delete()
+        return { content: [{ type: 'text', text: `deleted channel #${name}` }] }
+      }
+      case 'set_channel_topic': {
+        const channel_id = args.channel_id as string
+        const topic = args.topic as string
+        const ch = await client.channels.fetch(channel_id)
+        if (!ch || !('setTopic' in ch)) throw new Error(`channel ${channel_id} not found or doesn't support topics`)
+        await (ch as any).setTopic(topic)
+        return { content: [{ type: 'text', text: `set topic on #${(ch as any).name}: ${topic}` }] }
       }
       case 'fetch_messages': {
         const ch = await fetchAllowedChannel(args.channel as string)
